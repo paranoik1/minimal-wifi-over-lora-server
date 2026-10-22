@@ -1,0 +1,16 @@
+[project]
+name = "orange-pi-server"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "paranoik1",email = "paranoik@noreplay.com"}
+]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "pyserial (>=3.5,<4.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
