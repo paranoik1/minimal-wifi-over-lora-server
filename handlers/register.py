@@ -1,7 +1,7 @@
-from typing import Callable
 from functools import wraps
-from core.packet import Packet
+from typing import Callable
 
+from core.packet import Packet
 
 PayloadHandler = Callable[[str], str]
 CheckHandler = Callable[[str], bool]
@@ -21,6 +21,7 @@ def handler_client_request(check_func: CheckHandler):
         def wrapper(payload: str):
             if check_func(payload):
                 func(payload)
+
         return wrapper
-    
+
     return decorator

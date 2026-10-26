@@ -1,11 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
-from core.packet import Packet, PacketErrorCodes, PacketFlags, MessageType
-from core.security import encrypt_payload, decrypt_payload
-from core.compress import default_compressor, markdown_compressor
+from concurrent.futures import ThreadPoolExecutor
+
 import lora.queue_packets as queue_packets
+from core.compress import default_compressor, markdown_compressor
+from core.packet import MessageType, Packet, PacketErrorCodes, PacketFlags
+from core.security import decrypt_payload, encrypt_payload
 from handlers import get_all_handlers
+
 
 class UserSession:
     CHUNK_SIZE = 230
@@ -26,11 +28,16 @@ class UserSession:
         for check, handler in get_all_handlers().items():
             if check(payload):
                 return handler(payload)
-        
+
         raise ValueError(f"Не найден нужный handler под данный payload: {payload[:5]}")
-    
-    def _create_response_packets(self, request_packet: Packet, response: bytes) -> list[Packet]:
-        if request_packet.flags & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED:
+
+    def _create_response_packets(
+        self, request_packet: Packet, response: bytes
+    ) -> list[Packet]:
+        if (
+            request_packet.flags
+            & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED
+        ):
             # FIXME: в будущем
             pass
 
@@ -49,13 +56,13 @@ class UserSession:
             pkt_flags = PacketFlags.FLAG_COMPRESSED.value
 
             if i + 1 != len(compressed_chunks):
-                next_chunk = compressed_chunks[i+1]
+                next_chunk = compressed_chunks[i + 1]
             else:
                 next_chunk = None
                 pkt_flags |= PacketFlags.FLAG_FINAL_PACKET.value
 
             if (
-                len(chunk) < chunk_size 
+                len(chunk) < chunk_size
                 and next_chunk
                 and len(next_chunk) + len(chunk) <= chunk_size
             ):
@@ -64,8 +71,12 @@ class UserSession:
                 payload = chunk
 
             packet = Packet(
-                pkt_current_id, self.user_id, self.session_id, 
-                payload, MessageType.RESPONSE_PACKET, pkt_flags
+                pkt_current_id,
+                self.user_id,
+                self.session_id,
+                payload,
+                MessageType.RESPONSE_PACKET,
+                pkt_flags,
             )
             packets.append(packet)
 
@@ -74,7 +85,7 @@ class UserSession:
     def _process_packet(self, packet: Packet):
         with self._lock:
             self._received_packets.append(packet)
-        
+
         payload = decrypt_payload(packet.payload)
 
         if packet.flags & PacketFlags.FLAG_COMPRESSED:
@@ -85,27 +96,34 @@ class UserSession:
                 response_text = self._call_handler(payload, packet)
             except ValueError as ex:
                 self._logger.error(f"Ошибка call_handler: {ex}")
-                self.send_error_packet(self.user_id, self.session_id, PacketErrorCodes.UNKNOWN_PAYLOAD_COMMAND)
+                self.send_error_packet(
+                    self.user_id,
+                    self.session_id,
+                    PacketErrorCodes.UNKNOWN_PAYLOAD_COMMAND,
+                )
                 return
-            
-            response_packets = self._create_response_packets(packet, response_text.encode())
+
+            response_packets = self._create_response_packets(
+                packet, response_text.encode()
+            )
             for pkt in response_packets:
                 queue_packets.send_packets.put(pkt)
                 with self._lock:
                     self._sended_packets.append(pkt)
         elif packet.msg_type == MessageType.RECEIVED_PACKETS_REPORT:
-            #FIXME: реализовать
+            # FIXME: реализовать
             pass
         else:
-            self.send_error_packet(self.user_id, self.session_id, PacketErrorCodes.UNKOWN_MSG_TYPE)
-        
+            self.send_error_packet(
+                self.user_id, self.session_id, PacketErrorCodes.UNKOWN_MSG_TYPE
+            )
+
     def start_process_packet(self, packet: Packet):
         self._pool.submit(self._process_packet, packet)
 
     def send_ack_packet(self):
         ack_packet = Packet(
-            0, self.user_id, self.session_id,
-            "OK".encode(), MessageType.ACK_SERVER, 0
+            0, self.user_id, self.session_id, "OK".encode(), MessageType.ACK_SERVER, 0
         )
         queue_packets.send_packets.put(ack_packet)
 
@@ -114,9 +132,11 @@ class UserSession:
         payload = str(error_code).encode()
 
         error_packet = Packet(
-            id=0, user_id=user_id, session_id=session_id, 
-            payload=encrypt_payload(payload), 
+            id=0,
+            user_id=user_id,
+            session_id=session_id,
+            payload=encrypt_payload(payload),
             msg_type=MessageType.ERROR_RESPONSE,
-            flags=0
+            flags=0,
         )
         queue_packets.send_packets.put(error_packet)

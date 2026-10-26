@@ -1,9 +1,10 @@
 import logging
 import sys
-from logging.handlers import RotatingFileHandler
 from concurrent.futures import ThreadPoolExecutor
+from logging.handlers import RotatingFileHandler
 
 import serial
+
 from lora.managers import LoraReceiver, LoraSender
 from lora.queue_packets import received_packets
 from user_session import UserSession
@@ -50,15 +51,13 @@ def get_user_session_object(user_id: UserID, session_id: SessionID) -> UserSessi
             session_id: UserSession(sessions_thread_pool, user_id, session_id)
         }
         return user_session_map[user_id][session_id]
-    
+
     if session_id not in user_session_map[user_id]:
         usr_session = UserSession(sessions_thread_pool, user_id, session_id)
         user_session_map[user_id][session_id] = usr_session
         return usr_session
 
     return user_session_map[user_id][session_id]
-
-
 
 
 while True:

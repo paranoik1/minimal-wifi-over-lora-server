@@ -1,4 +1,3 @@
-import struct
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Callable
 
@@ -16,8 +15,10 @@ class _LoraBase:
 
     def _start(self, fn: Callable, *args, **kwargs):
         if self._lora_future:
-            raise RuntimeError("Нельзя дважды вызвать start, пока существует запущенный Future для обработки")
-        
+            raise RuntimeError(
+                "Нельзя дважды вызвать start, пока существует запущенный Future для обработки"
+            )
+
         self._lora_future = self._pool.submit(fn, *args, **kwargs)
 
 
@@ -32,7 +33,7 @@ class LoraReceiver(_LoraBase):
         length_payload = Packet.unpack_length_payload(pkt_metadata)
         other = self._serial.read(length_payload + self.after_payload_size)
         packet_raw = pkt_metadata + other
-        
+
         return Packet.from_bytes(packet_raw)
 
     def _loop_receive_packets(self):

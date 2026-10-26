@@ -41,7 +41,6 @@ class MessageType(IntEnum):
     ACK_SERVER = 4
 
 
-# NOTE: А что насчет сессий? У каждого пользователя может быть много сессий и таким образом конкретная часть программы может определять, как обрабатывать данные и куда их потом класть (например, паралельное скачивание сайта и изображений на нем)
 class Packet:
     max_user_id = 2**USER_ID_BITS
     max_pkt_id = 2**PACKET_ID_BITS
@@ -94,14 +93,14 @@ class Packet:
         # B - unsigned char - 1 байт
         header = struct.pack("B", (self.user_id << 4) | self.msg_type)
         session_info = struct.pack("B", (self.session_id << 4) | self.flags)
-        # <H - unsigned short - 2 байта, в big-edian (по какому порядку размещать байты) 
+        # <H - unsigned short - 2 байта, в big-edian (по какому порядку размещать байты)
         # (на это указывает стрелочка <)
         # big-endian - старшие байты справа, а младшие с лева (в little endian наоборот)
         pkt_id = struct.pack(">H", self.pkt_id)
         length_payload = struct.pack("B", self.length_payload)
 
         return header + session_info + pkt_id + length_payload + self.payload
-    
+
     @staticmethod
     def unpack_length_payload(pkt_metadata: bytes) -> int:
         metadata_size = Packet.get_size_metadata_packet()
@@ -113,7 +112,7 @@ class Packet:
     @staticmethod
     def get_size_metadata_packet():
         return 5
-    
+
     @staticmethod
     def get_size_bytes_after_payload():
         # Пока только crc8 идет после payload
