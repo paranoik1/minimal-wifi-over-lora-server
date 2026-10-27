@@ -10,10 +10,11 @@ PACKET_ID_BITS = 2 * 8
 class PacketErrorCodes(IntEnum):
     UNKNOWN_PAYLOAD_COMMAND = 0
     UNKOWN_MSG_TYPE = 1
+    FAILED_CALL_HANDLER_PAYLOAD = 2
 
 
 # 4 бита - 4 флага
-class PacketFlags(IntEnum):
+class PacketFlags:
     # сжат ли payload
     FLAG_COMPRESSED = 1
     # сжат только chunk, или абсолютно весь итоговый payload, полученный из всех пришедних пакетов?
@@ -35,7 +36,7 @@ class MessageType(IntEnum):
     RECEIVED_PACKETS_REPORT = 1
 
     # Типы сообщений от сервера
-    RESPONSE_PACKET = 2
+    RESPONSE_SERVER = 2
     ERROR_RESPONSE = 3
     # Сервер получил пакет от пользователя и обрабатывает его
     ACK_SERVER = 4

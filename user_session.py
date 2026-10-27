@@ -1,7 +1,6 @@
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable
 
 import lora.queue_packets as queue_packets
 from core.compress import default_compressor, markdown_compressor
@@ -33,42 +32,37 @@ class UserSession:
                 return handler(payload)
 
         raise ValueError(f"Не найден нужный handler под данный payload: {payload[:5]}")
-    
-    def _chunking(self, response: bytes, postprocess: Callable[[bytes], bytes]):
-        max_chunk_size = self.MAX_CHUNK_SIZE
 
-        compressed_chunks: list[bytes] = []
-        for i in range(0, len(response), max_chunk_size):
-            # если сущесвутет весь сжатый response - не занимаемся повторным сжатием чанков
-            # и добавляем чанк в compressed_chunks как есть
-            # в противном случае - сжимаем чанк и добавляем в список compressed_chunks
-            chunk_raw = response[i:i+max_chunk_size]
-            chunk = postprocess(chunk_raw)
-
-            compressed_chunks.append(chunk)
-        return compressed_chunks
-    
     def _create_response_packets(
         self, request_packet: Packet, response: bytes
     ) -> list[Packet]:
         # Проверяем флаг FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED
         # если он активен, то сжимаем весь response сразу
         # иначе - compressed_response = None, что свидетельсвует о том, что флаг не активен
+        original_response = response
+
+        is_full_compress = False
         if (
             request_packet.flags
             & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED
         ):
-            compressed_response = markdown_compressor.compress(response)
-            postprocess_chunks = lambda chunk: chunk
-        else:
-            compressed_response = None
-            postprocess_chunks = lambda chunk: markdown_compressor.compress(chunk)
+            response = markdown_compressor.compress(response)
+            is_full_compress = True
 
-        compressed_chunks: list[bytes] = self._chunking(
-            response = compressed_response or response,
-            postprocess = postprocess_chunks
-        )
+        compressed_chunks: list[bytes] = []
         max_chunk_size = self.MAX_CHUNK_SIZE
+        for i in range(0, len(response), max_chunk_size):
+            # если сущесвутет весь сжатый response - не занимаемся повторным сжатием чанков
+            # и добавляем чанк в compressed_chunks как есть
+            # в противном случае - сжимаем чанк и добавляем в список compressed_chunks
+            chunk_raw = response[i:i+max_chunk_size]
+
+            if not is_full_compress:
+                # TODO: в будущем handler должен будет возвращать информацию о response
+                # К примеру, Тип: чтобы определять, какой compressor стоит использовать для него
+                chunk_raw = markdown_compressor.compress(chunk_raw)
+
+            compressed_chunks.append(chunk_raw)
 
         packets: list[Packet] = []
         pkt_current_id = 0
@@ -79,24 +73,27 @@ class UserSession:
 
             # проверяем, является ли это последним чанком
             # если да - устанавливаем FLAG_FINAL_PACKET
-            # в ином случае задаем next_chunk, дабы объединить их, чтобы отправить
-            # больше информации за раз
+            # В нижнем цикле есть повторяющееся условие - конкретно это нужно для обработки случая, когда последний чанк является последним и с максимальным размером payload (для одного пакета)
             if chunk_idx >= len(compressed_chunks):
                 pkt_flags |= PacketFlags.FLAG_FINAL_PACKET
 
             payload = compressed_chunks[chunk_idx]
 
             if len(payload) > max_chunk_size:
-                raise RuntimeError(f"Каким то образом chunk стал больше по размеру, чем {max_chunk_size} байт...")
+                raise RuntimeError(f"Каким то образом chunk стал больше по размеру, чем {max_chunk_size} байт... Плохая функция, правь")
             elif len(payload) == max_chunk_size:
+                # Вот для этого случая нужна верхняя проверка chunk_idx >= len(compressed_chunks)
                 chunk_idx += 1
             else:
+                # Цикл для добавления сжатых чанков в один payload (чтобы пакеты были заполнены максимально и за раз можно было отправить больше данных)
+                # для разжатия таких данных на стороне клиента необходимо запустить ZstdStreamReader
                 while len(payload) < max_chunk_size:
+                    chunk_idx += 1
+
                     if chunk_idx >= len(compressed_chunks):
                         pkt_flags |= PacketFlags.FLAG_FINAL_PACKET
                         break
 
-                    chunk_idx += 1
                     next_chunk = compressed_chunks[chunk_idx]
                     
                     if len(next_chunk) + len(payload) > max_chunk_size:
@@ -115,6 +112,8 @@ class UserSession:
             pkt_current_id += 1
 
             packets.append(packet)
+            if pkt_flags & PacketFlags.FLAG_FINAL_PACKET:
+                break
 
         return packets
 
@@ -194,7 +193,23 @@ if __name__ == '__main__':
     # compressed2 = markdown_compressor.compress(response[230:245])
     # decoded = markdown_compressor.decompress_frames(compressed1 + compressed2).decode("utf-8", errors="replace")
     # print()
-    UserSession(None, 1, 2)._create_response_packets(
-        Packet(0, 1, 1, "url".encode(), MessageType.RESPONSE_SERVER, PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED),
+    req_pkt = Packet(0, 1, 1, "url".encode(), MessageType.RESPONSE_SERVER, PacketFlags.FLAG_COMPRESSED)
+    packets = UserSession(None, 1, 2)._create_response_packets(
+        req_pkt,
         response
     )
+
+    is_full_compressed = bool(req_pkt.flags & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED)
+
+    result_response = b""
+    compressed_result = b""
+    for pkt in packets:
+        compressed_result += pkt.payload
+        if not is_full_compressed:
+            result_response += markdown_compressor.decompress_frames(pkt.payload)
+
+    if is_full_compressed:
+        result_response = markdown_compressor.decompress(compressed_result)
+
+    print(f"{len(result_response)=}, {len(response)=}, {len(compressed_result)=}", result_response == response)
+    assert result_response == response

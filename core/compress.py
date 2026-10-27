@@ -22,7 +22,11 @@ class CompressionManager:
         """Получить компрессор для текущего потока"""
         if not hasattr(self._local, "compressor"):
             self._local.compressor = zstd.ZstdCompressor(
-                level=self.level, dict_data=self.dict_data
+                level=self.level, 
+                dict_data=self.dict_data, 
+                write_dict_id=False, 
+                write_checksum=False,
+                write_content_size=False
             )
         return self._local.compressor
 
@@ -36,6 +40,24 @@ class CompressionManager:
         """Сжать данные"""
         compressor = self._get_compressor()
         return compressor.compress(payload)
+
+    def decompress_frames(
+        self,
+        payload: bytes,
+        max_output_size: int = 10 * 1024 * 1024,
+    ) -> bytes:
+        decompressor = self._get_decompressor()
+
+        with decompressor.stream_reader(
+            payload,
+            read_across_frames=True,
+        ) as reader:
+            result = reader.read(max_output_size + 1)
+
+        if len(result) > max_output_size:
+            raise ValueError("Decompressed payload exceeds size limit")
+
+        return result
 
     def decompress(
         self, payload: bytes, max_output_size: int = 10 * 1024 * 1024
