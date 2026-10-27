@@ -1,12 +1,11 @@
 import threading
 from pathlib import Path
-from typing import Optional
 
 import zstandard as zstd
 
 
 class CompressionManager:
-    def __init__(self, dict_path: Optional[str] = None, level: int = 3):
+    def __init__(self, dict_path: str | None = None, level: int = 3):
         self.level = level
         self.dict_data = None
 

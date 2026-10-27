@@ -194,36 +194,3 @@ class Packet:
             payload=encrypted_payload,
             crc8=crc8,
         )
-
-
-# class ResponseFactory:
-#     max_user_id = 2**USER_ID_BITS
-
-#     def __init__(self, user_id: int, session_id: int, full_payload: bytes):
-#         if user_id > self.max_user_id:
-#             raise ValueError(
-#                 f"user_id не может быть больше {self.max_user_id}"
-#             )
-#         self.user_id = user_id
-#         self.session_id = session_id
-#         self.full_payload = full_payload
-
-#     def split_packets(self) -> list[Packet]:
-#         packets: list[Packet] = []
-#         counter = 0
-#         sep = PACKET_PAYLOAD_LENGTH
-#         for i in range(0, len(self.full_payload), sep):
-#             payload = self.full_payload[i : i + sep]
-#             pkt = Packet(
-#                 counter,
-#                 self.user_id,
-#                 self.session_id,
-#                 payload,
-#                 MessageType.RESPONSE_PACKET,
-#                 flags=0
-#             )
-#             packets.append(pkt)
-#             counter += 1
-
-#         packets[-1].flags |= PacketFlags.FLAG_FINAL_PACKET
-#         return packets
