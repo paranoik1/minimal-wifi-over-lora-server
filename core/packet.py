@@ -1,5 +1,7 @@
 import struct
 from enum import IntEnum
+from hashlib import sha256
+
 
 PACKET_PAYLOAD_LENGTH = 240
 USER_ID_BITS = 4
@@ -24,6 +26,9 @@ class PacketFlags:
     # Нужен для того, чтобы клиент зафикисировал, сколько всего пакетов он должен был получить
     # и если он их не получил, то продолжать отправлять сообщения с типом RECEIVED_PACKETS_REPORT до тех пор, пока не получит пакет с этим флагом (FLAG_FINAL_PACKET) и все недостающие пакеты
     FLAG_FINAL_PACKET = 1 << 2
+    # Пакет с таким флагом в начале payload хранит информацию о текущей сессии (пока что только total_packets)
+    # нужен для формирования прогресса на стороне клиента
+    FLAG_SESSION_INFO = 1 << 3
 
 
 # 4 бита - 16 значений
@@ -38,8 +43,12 @@ class MessageType(IntEnum):
     # Типы сообщений от сервера
     RESPONSE_SERVER = 2
     ERROR_RESPONSE = 3
-    # Сервер получил пакет от пользователя и обрабатывает его
+    # Сервер получил MSG_REQUEST от пользователя и обрабатывает его
     ACK_SERVER = 4
+
+    # Отправляет клиент - Завершить текущую сессию
+    # Нужен для очистки ресурсов на сервере
+    FINISH_SESSION = 5
 
 
 class Packet:
@@ -130,7 +139,10 @@ class Packet:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Packet):
             return NotImplemented
-        return self.calculate_crc8() == other.calculate_crc8()
+        
+        current_pkt_raw = self.to_bytes()
+        other_pkt_raw = other.to_bytes()
+        return sha256(current_pkt_raw).digest() == sha256(other_pkt_raw).digest()
 
     def __repr__(self) -> str:
         msg_type = MessageType(self.msg_type)

@@ -1,3 +1,4 @@
+from hashlib import sha256
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -20,8 +21,16 @@ class UserSession:
 
         self._lock = threading.Lock()
 
-        self._received_packets: list[Packet] = []
+        self._received_packets_hashes: set[bytes] = set()
         self._sended_packets: list[Packet] = []
+
+    def check_duplicate(self, packet: Packet) -> bool:
+        """
+        True - если пакет уже ранее был получен данным UserSession, иначе False
+        """
+        digest_packet = sha256(packet.to_bytes()).digest()
+        with self._lock:
+            return digest_packet in self._received_packets_hashes 
 
     def _call_handler(self, payload: str, pkt: Packet) -> str:
         """Возвращает полученный payload от подходящего handler"""
@@ -31,7 +40,7 @@ class UserSession:
             if check(payload):
                 return handler(payload)
 
-        raise ValueError(f"Не найден нужный handler под данный payload: {payload[:5]}")
+        raise ValueError(f"Не найден нужный handler под данный payload: {payload}")
 
     def _create_response_packets(
         self, request_packet: Packet, response: bytes
@@ -117,56 +126,73 @@ class UserSession:
 
         return packets
 
+    def __process_msg_request_packet(self, payload: bytes, packet: Packet):
+        try:
+            payload_str = payload.decode()
+            response_text = self._call_handler(payload_str, packet)
+        except ValueError as ex:
+            self._logger.error(f"Ошибка call_handler: {ex}")
+            self.send_error_packet(
+                self.user_id,
+                self.session_id,
+                PacketErrorCodes.UNKNOWN_PAYLOAD_COMMAND,
+            )
+            return
+        except HandlerPayloadError as ex:
+            self._logger.error(f"Ошибка во время выполнения handler: {ex}")
+            self.send_error_packet(
+                self.user_id,
+                self.session_id,
+                PacketErrorCodes.FAILED_CALL_HANDLER_PAYLOAD,
+            )
+            return
+        except:
+            self._logger.exception("Произошла непредвиденная ошибка во время обработки пакета")
+            return
+
+        response_packets = self._create_response_packets(
+            packet, response_text.encode()
+        )
+        for pkt in response_packets:
+            queue_packets.send_packets.put(pkt)
+            with self._lock:
+                self._sended_packets.append(pkt)
+
+    def __process_received_packets_report(self, payload: bytes, packet: Packet):
+        # TODO: реализовать
+        # алгоритм - в payload лежит информация о полученных пакетах. 
+        # проходимся по списку полученных пакетов клиентом и отправляем те, которые уже были отправлены, но не дошли до пользователя
+        pass
+
     def _process_packet(self, packet: Packet):
+        self._logger.info(f"Начинаем обработку пакета: {packet}")
+
+        pkt_raw_hash = sha256(packet.to_bytes()).digest()
         with self._lock:
-            self._received_packets.append(packet)
+            self._received_packets_hashes.add(pkt_raw_hash)
 
         payload = decrypt_payload(packet.payload)
-
         if packet.flags & PacketFlags.FLAG_COMPRESSED:
             payload = default_compressor.decompress(payload)
 
         if packet.msg_type == MessageType.MSG_REQUEST:
-            try:
-                response_text = self._call_handler(payload, packet)
-            except ValueError as ex:
-                self._logger.error(f"Ошибка call_handler: {ex}")
-                self.send_error_packet(
-                    self.user_id,
-                    self.session_id,
-                    PacketErrorCodes.UNKNOWN_PAYLOAD_COMMAND,
-                )
-                return
-            except HandlerPayloadError as ex:
-                self._logger.error(f"Ошибка во время выполнения handler: {ex}")
-                self.send_error_packet(
-                    self.user_id,
-                    self.session_id,
-                    PacketErrorCodes.FAILED_CALL_HANDLER_PAYLOAD,
-                )
-                return
+            return self.__process_msg_request_packet(payload, packet)
+        
+        if packet.msg_type == MessageType.RECEIVED_PACKETS_REPORT:
+            return self.__process_received_packets_report(payload, packet)
 
-            response_packets = self._create_response_packets(
-                packet, response_text.encode()
-            )
-            for pkt in response_packets:
-                queue_packets.send_packets.put(pkt)
-                with self._lock:
-                    self._sended_packets.append(pkt)
-        elif packet.msg_type == MessageType.RECEIVED_PACKETS_REPORT:
-            # TODO: реализовать
-            pass
-        else:
-            self.send_error_packet(
-                self.user_id, self.session_id, PacketErrorCodes.UNKOWN_MSG_TYPE
-            )
+        self.send_error_packet(
+            self.user_id, self.session_id, PacketErrorCodes.UNKOWN_MSG_TYPE
+        )
 
     def start_process_packet(self, packet: Packet):
         self._pool.submit(self._process_packet, packet)
 
     def send_ack_packet(self):
+        payload = encrypt_payload("OK".encode())
         ack_packet = Packet(
-            0, self.user_id, self.session_id, "OK".encode(), MessageType.ACK_SERVER, 0
+            0, self.user_id, self.session_id, payload, 
+            MessageType.ACK_SERVER, 0
         )
         queue_packets.send_packets.put(ack_packet)
 
@@ -186,30 +212,7 @@ class UserSession:
 
 
 if __name__ == '__main__':
-    with open("response_test.md", "rb") as fp:
-        response = fp.read()
+    pkt = Packet(0, 0, 0, "Unknown".encode(), MessageType.MSG_REQUEST, 0)
+    session = UserSession(None, 0, 0) # type: ignore
+    session._process_packet(pkt)
 
-    # compressed1 = markdown_compressor.compress(response[:230])
-    # compressed2 = markdown_compressor.compress(response[230:245])
-    # decoded = markdown_compressor.decompress_frames(compressed1 + compressed2).decode("utf-8", errors="replace")
-    # print()
-    req_pkt = Packet(0, 1, 1, "url".encode(), MessageType.RESPONSE_SERVER, PacketFlags.FLAG_COMPRESSED)
-    packets = UserSession(None, 1, 2)._create_response_packets(
-        req_pkt,
-        response
-    )
-
-    is_full_compressed = bool(req_pkt.flags & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED)
-
-    result_response = b""
-    compressed_result = b""
-    for pkt in packets:
-        compressed_result += pkt.payload
-        if not is_full_compressed:
-            result_response += markdown_compressor.decompress_frames(pkt.payload)
-
-    if is_full_compressed:
-        result_response = markdown_compressor.decompress(compressed_result)
-
-    print(f"{len(result_response)=}, {len(response)=}, {len(compressed_result)=}", result_response == response)
-    assert result_response == response
