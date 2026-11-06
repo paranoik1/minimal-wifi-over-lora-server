@@ -1,0 +1,100 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Users</title>
+    <meta name="csrf-token" content="{{ session.csrf_token }}">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='users.css')}}">
+</head>
+
+<body>
+    <main class="container">
+        <h1>Пользователи</h1>
+        <button onclick="logout()">Выход</button>
+
+        <!-- Сообщения -->
+        <div id="message" class="message">
+        </div>
+
+        <div id="qr-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3>QR-код пользователя</h3>
+                <div id="qrcode"></div>
+                <p id="qr-user-id"></p>
+                <button onclick="closeQrModal()">Закрыть</button>
+            </div>
+        </div>
+
+        <!-- Список пользователей -->
+        <div class="users" id="users">
+
+            {% for user in users %}
+            <div class="user" data-user-id="{{ user.user_id }}">
+
+                <div class="user-info">
+                    <div class="user-name">
+                        {{ user.name }}
+                    </div>
+
+                    <div class="user-id">
+                        ID: {{ user.user_id }}
+                    </div>
+                </div>
+
+                <div class="user-actions">
+                    <button
+                        type="button"
+                        onclick="regenerateKey('{{ user.user_id }}', this)"
+                    >
+                        Новый ключ
+                    </button>
+
+                    <button
+                        type="button"
+                        class="delete-btn"
+                        onclick="deleteUser('{{ user.user_id }}', this)"
+                    >
+                        Удалить
+                    </button>
+                </div>
+
+            </div>
+            {% else %}
+            <div class="empty" id="empty">
+                Пользователей пока нет
+            </div>
+            {% endfor %}
+
+        </div>
+
+        <!-- Создание пользователя -->
+        <button
+            type="button"
+            class="create-btn"
+            onclick="toggleCreateForm()"
+        >
+            + Создать пользователя
+        </button>
+
+        <form class="create-form" id="createForm">
+            <input
+                type="text"
+                id="userName"
+                placeholder="Имя пользователя"
+                maxlength="100"
+                required
+            >
+
+            <button type="submit">
+                Создать
+            </button>
+        </form>
+    </main>
+
+    <script src="{{ url_for('static', filename='users.js') }}"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ from core.packet import MessageType
 from lora.managers import LoraReceiver, LoraSender
 from lora.queue_packets import received_packets
 from user_session import UserSession
+from database import init_db
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -24,6 +25,8 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+init_db()
 
 
 UserID = int

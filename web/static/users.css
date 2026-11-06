@@ -1,0 +1,197 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 40px 20px;
+    background: #111111;
+    color: #eeeeee;
+    font-family: system-ui, sans-serif;
+}
+
+.container {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+h1 {
+    margin: 0 0 28px;
+    font-size: 22px;
+    font-weight: 500;
+}
+
+.users {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    background: #1a1a1a;
+}
+
+.user-info {
+    min-width: 0;
+}
+
+.user-name {
+    margin-bottom: 5px;
+    font-size: 15px;
+}
+
+.user-id {
+    color: #777777;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.user-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 8px;
+}
+
+button {
+    padding: 9px 12px;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    background: #222222;
+    color: #eeeeee;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+button:hover {
+    background: #333333;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.delete-btn {
+    color: #e57373;
+}
+
+.create-btn {
+    width: 100%;
+    margin-top: 16px;
+    padding: 12px;
+    background: #eeeeee;
+    color: #111111;
+    border: none;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.create-btn:hover {
+    background: #cccccc;
+}
+
+.create-form {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 16px;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    background: #1a1a1a;
+}
+
+.create-form.active {
+    display: flex;
+}
+
+input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #333333;
+    border-radius: 5px;
+    outline: none;
+    background: #111111;
+    color: #eeeeee;
+    font: inherit;
+}
+
+input:focus {
+    border-color: #777777;
+}
+
+input::placeholder {
+    color: #666666;
+}
+
+.message {
+    display: none;
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid #333333;
+    border-radius: 5px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
+.message.error {
+    display: block;
+    color: #e57373;
+    border-color: #633333;
+}
+
+.message.success {
+    display: block;
+    color: #81c784;
+    border-color: #335b38;
+}
+
+.message pre {
+    margin: 10px 0 0;
+    padding: 10px;
+    background: #111111;
+    border-radius: 4px;
+    color: #eeeeee;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.empty {
+    padding: 24px;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    color: #777777;
+    text-align: center;
+    font-size: 14px;
+}
+
+.hidden {
+    display: none
+}
+
+@media (max-width: 480px) {
+    .user {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .user-actions {
+        width: 100%;
+    }
+
+    .user-actions button {
+        flex: 1;
+    }
+}
