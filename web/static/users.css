@@ -17,8 +17,16 @@ body {
     margin: 0 auto;
 }
 
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
 h1 {
-    margin: 0 0 28px;
+    margin: 0;
     font-size: 22px;
     font-weight: 500;
 }
@@ -177,8 +185,72 @@ input::placeholder {
     font-size: 14px;
 }
 
-.hidden {
-    display: none
+
+.logout-btn {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border: 1px solid #333333;
+    background: transparent;
+    color: #999999;
+    font-size: 13px;
+}
+
+.logout-btn:hover {
+    border-color: #555555;
+    background: #1a1a1a;
+    color: #eeeeee;
+}
+
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.75);
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    width: 100%;
+    max-width: 300px;
+    padding: 24px;
+    border: 1px solid #333333;
+    border-radius: 8px;
+    background: #1a1a1a;
+}
+
+.modal-content h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+    color: #eeeeee;
+}
+
+#qrcode {
+    padding: 12px;
+    border-radius: 6px;
+    background: #ffffff;
+    line-height: 0;
+}
+
+#qrcode img,
+#qrcode canvas {
+    display: block;
+}
+
+.modal-content button {
+    width: 100%;
+    padding: 10px;
 }
 
 @media (max-width: 480px) {

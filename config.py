@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-DB_PATH = Path(__file__) / 'users.db'
+DB_PATH = Path(__file__).parent / 'users.db'
 
 # Нужен для шифровании session объекта в куках
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")

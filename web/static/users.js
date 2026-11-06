@@ -8,18 +8,8 @@ function showQrCode(qrData) {
 
     // Удаляем предыдущий QR-код
     qrContainer.innerHTML = '';
-
-    // Формируем данные для Android-приложения
-    new QRCode(qrContainer, {
-        text: qrData,
-        width: 220,
-        height: 220,
-        correctLevel: QRCode.CorrectLevel.M
-    });
-
-    document.getElementById('qr-user-id').textContent =
-        `User ID: ${userId}`;
-
+    
+    new QRCode(qrContainer, qrData)
     document.getElementById('qr-modal').classList.remove('hidden');
 }
 
@@ -198,6 +188,7 @@ async function regenerateKey(userId, button) {
         showQrCode(qrData)
     } catch (error) {
         showMessage(error.message);
+        console.error(error)
     } finally {
         button.disabled = false;
     }
