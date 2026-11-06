@@ -1,7 +1,9 @@
-from hashlib import sha256
 import logging
+import struct
+
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 
 import lora.queue_packets as queue_packets
 from core.compress import default_compressor, markdown_compressor
@@ -11,7 +13,7 @@ from handlers import get_all_handlers, HandlerPayloadError
 
 
 class UserSession:
-    MAX_CHUNK_SIZE = 230
+    MAX_CHUNK_PAYLOAD_SIZE = 230
 
     def __init__(self, thread_pool: ThreadPoolExecutor, user_id: int, session_id: int):
         self.user_id = user_id
@@ -19,17 +21,19 @@ class UserSession:
         self._pool = thread_pool
         self._logger = logging.getLogger(f"user_session   {user_id=} {session_id=}")
 
-        self._lock = threading.Lock()
+        self._lock_sended_pkts = threading.Lock()
+        self._lock_received_pkts_hashes = threading.Lock()
 
         self._received_packets_hashes: set[bytes] = set()
-        self._sended_packets: list[Packet] = []
+        # Пакеты добавляются по очереди => отсортированный список
+        self._sended_packets: list[Packet] = [] 
 
     def check_duplicate(self, packet: Packet) -> bool:
         """
         True - если пакет уже ранее был получен данным UserSession, иначе False
         """
         digest_packet = sha256(packet.to_bytes()).digest()
-        with self._lock:
+        with self._lock_received_pkts_hashes:
             return digest_packet in self._received_packets_hashes 
 
     def _call_handler(self, payload: str, pkt: Packet) -> str:
@@ -59,7 +63,7 @@ class UserSession:
             is_full_compress = True
 
         compressed_chunks: list[bytes] = []
-        max_chunk_size = self.MAX_CHUNK_SIZE
+        max_chunk_size = self.MAX_CHUNK_PAYLOAD_SIZE
         for i in range(0, len(response), max_chunk_size):
             # если сущесвутет весь сжатый response - не занимаемся повторным сжатием чанков
             # и добавляем чанк в compressed_chunks как есть
@@ -155,20 +159,77 @@ class UserSession:
         )
         for pkt in response_packets:
             queue_packets.send_packets.put(pkt)
-            with self._lock:
+            with self._lock_sended_pkts:
                 self._sended_packets.append(pkt)
 
     def __process_received_packets_report(self, payload: bytes, packet: Packet):
-        # TODO: реализовать
-        # алгоритм - в payload лежит информация о полученных пакетах. 
-        # проходимся по списку полученных пакетов клиентом и отправляем те, которые уже были отправлены, но не дошли до пользователя
-        pass
+        # Структура такого пакета - если это первая часть отчета (отчет может быть разбит на несколько пакетов, если информация не влезла в один payload), то первые 2 байта - max_pkt_id, иначе это поле опускается
+        # Остальной payload - известные непришедшие пакеты
+        _index = 2 if packet.pkt_id == 0 else 0
+        missing_packets_raw = payload[_index:].decode()
+        pkts_range = missing_packets_raw.split(",")
+
+        def check_sended_and_send_pkt(pkt_id: int):
+            """
+            Функция для безопасной проверки того, был ли отправлен пакет с pkt_id
+
+            Если нет, то не отправляем пакет по новой, так как он еще не был отправлен основным потоком (`_process_msg_request`)
+
+            Если да - получаем этот пакет из `self._sended_packets` и отправляем повторно 
+            """
+            with self._lock_sended_pkts:
+                # Пакеты добавляются по очереди => отсортированный список
+                if pkt_id < len(self._sended_packets): # пакет с этим id еще не был отправлен
+                    packet = self._sended_packets[pkt_id]
+                    queue_packets.send_packets.put_nowait(packet)
+
+        for pkt_id_or_range in pkts_range:
+            if "-" not in pkt_id_or_range:
+                try:
+                    pkt_id = int(pkt_id_or_range)
+                except ValueError:
+                    self._logger.error(f"Было получено не числовое значение - pkt_id={pkt_id_or_range}")
+                    continue
+
+                check_sended_and_send_pkt(pkt_id)
+                continue
+            
+            pkt_range = pkt_id_or_range
+            start_id_raw, finish_id_raw = pkt_range.split("-")
+            try:
+                start_id = int(start_id_raw)
+                finish_id = int(finish_id_raw)
+            except ValueError:
+                self._logger.error(f"Были получены не числовые данные - {start_id=}, {finish_id=}")
+                continue
+
+            for pkt_id in range(start_id, finish_id + 1):
+                check_sended_and_send_pkt(pkt_id)
+
+        # если это часть пакета REPORT_RECEIVED_PACKETS => мы уже отправляли пакеты выше max_pkt_id => пропускаем этот шаг 
+        if packet.pkt_id != 0:
+            return
+        
+        # Проверяем, отправляли ли мы пакеты, которые стоят выше max_pkt_id
+        # Если нет, пропускаем шаг
+        # В ином случае отправляем все выше стоящие пакеты по новой
+        max_pkt_id = struct.unpack(
+            ">H", payload[:2]
+        )[0]
+        with self._lock_sended_pkts:
+            if max_pkt_id >= len(self._sended_packets):
+                return
+            # пакет с pkt_id = max_pkt_id пропускаем (добавляя + 1 к индексу) 
+            repeat_pkts = self._sended_packets[max_pkt_id + 1:]
+        
+        for repeat_pkt in repeat_pkts:
+            queue_packets.send_packets.put_nowait(repeat_pkt)
 
     def _process_packet(self, packet: Packet):
         self._logger.info(f"Начинаем обработку пакета: {packet}")
 
         pkt_raw_hash = sha256(packet.to_bytes()).digest()
-        with self._lock:
+        with self._lock_received_pkts_hashes:
             self._received_packets_hashes.add(pkt_raw_hash)
 
         payload = decrypt_payload(packet.payload)
@@ -212,7 +273,14 @@ class UserSession:
 
 
 if __name__ == '__main__':
-    pkt = Packet(0, 0, 0, "Unknown".encode(), MessageType.MSG_REQUEST, 0)
+    report = struct.pack(">H", 7) + b"1,3-5"
+    pkt0 = Packet(0, 0, 0, report, MessageType.RECEIVED_PACKETS_REPORT, 0)
+    pkt1 = Packet(1, 0, 0, b"6", MessageType.RECEIVED_PACKETS_REPORT, 0)
     session = UserSession(None, 0, 0) # type: ignore
-    session._process_packet(pkt)
+    for i in range(0, 10):
+        pkt = Packet(i, 0, 0, b"Hello", MessageType.RESPONSE_SERVER, 0)
+        session._sended_packets.append(pkt)
+        
+    session._process_packet(pkt0)
+    session._process_packet(pkt1)
 
