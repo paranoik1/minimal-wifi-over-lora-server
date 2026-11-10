@@ -3,7 +3,9 @@ from enum import IntEnum
 from hashlib import sha256
 
 
-PACKET_PAYLOAD_LENGTH = 240
+METADATA_PACKET_SIZE = 5
+PACKET_PAYLOAD_LENGTH = 220
+
 USER_ID_BITS = 4
 MSG_TYPE_BITS = 4
 PACKET_ID_BITS = 2 * 8
@@ -11,7 +13,7 @@ PACKET_ID_BITS = 2 * 8
 
 class PacketErrorCodes(IntEnum):
     UNKNOWN_PAYLOAD_COMMAND = 0
-    UNKOWN_MSG_TYPE = 1
+    UNKNOWN_MSG_TYPE = 1
     FAILED_CALL_HANDLER_PAYLOAD = 2
 
 
@@ -22,7 +24,7 @@ class PacketFlags:
     # сжат только chunk, или абсолютно весь итоговый payload, полученный из всех пришедних пакетов?
     # если флаг активен - необходимо сжать весь итоговый payload (по умолчанию конкретный chunk)
     # это важно, так как если сжат весь итоговый payload, то конкретный полученный payload chunk отдельно от остальных разжать не получится
-    FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED = 1 << 1
+    FLAG_RESPONSE_NEEDED_FULL_PAYLOAD_COMPRESSED = 1 << 1
     # Нужен для того, чтобы клиент зафикисировал, сколько всего пакетов он должен был получить
     # и если он их не получил, то продолжать отправлять сообщения с типом RECEIVED_PACKETS_REPORT до тех пор, пока не получит пакет с этим флагом (FLAG_FINAL_PACKET) и все недостающие пакеты
     FLAG_FINAL_PACKET = 1 << 2
@@ -121,7 +123,7 @@ class Packet:
 
     @staticmethod
     def get_size_metadata_packet():
-        return 5
+        return METADATA_PACKET_SIZE
 
     @staticmethod
     def get_size_bytes_after_payload():

@@ -4,16 +4,32 @@ import struct
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
+from handlers.base import ResponseType
 
 import lora.queue_packets as queue_packets
-from core.compress import default_compressor, markdown_compressor
-from core.packet import MessageType, Packet, PacketErrorCodes, PacketFlags
+from core.compress import CompressionManager, default_compressor, markdown_compressor
+from core.packet import MessageType, Packet, PacketErrorCodes, PacketFlags, PACKET_PAYLOAD_LENGTH
 from core.security import decrypt_payload, encrypt_payload
 from handlers import get_all_handlers, HandlerPayloadError
 
 
+COMPRESSORS = {
+    ResponseType.MARKDOWN: markdown_compressor,
+    ResponseType.TEXT: default_compressor
+}
+
+
+for response_type in ResponseType:
+    if response_type not in COMPRESSORS:
+        raise RuntimeError(f"Не найден соотвутствующий compressor для {response_type=}")
+    
+
+def get_compressor(response_type: ResponseType) -> CompressionManager:
+    return COMPRESSORS[response_type]
+
+
 class UserSession:
-    MAX_CHUNK_PAYLOAD_SIZE = 230
+    MAX_CHUNK_PAYLOAD_SIZE = PACKET_PAYLOAD_LENGTH
 
     def __init__(self, thread_pool: ThreadPoolExecutor, user_id: int, session_id: int):
         self.user_id = user_id
@@ -36,10 +52,8 @@ class UserSession:
         with self._lock_received_pkts_hashes:
             return digest_packet in self._received_packets_hashes 
 
-    def _call_handler(self, payload: str, pkt: Packet) -> str:
+    def _call_handler(self, payload: str, pkt: Packet) -> tuple[str, ResponseType]:
         """Возвращает полученный payload от подходящего handler"""
-        # TODO: в будущем handler должен будет возвращать информацию о response
-        # К примеру, Тип: чтобы определять, какой compressor стоит использовать для него
         for check, handler in get_all_handlers().items():
             if check(payload):
                 return handler(payload)
@@ -47,19 +61,20 @@ class UserSession:
         raise ValueError(f"Не найден нужный handler под данный payload: {payload}")
 
     def _create_response_packets(
-        self, request_packet: Packet, response: bytes
+        self, request_packet: Packet, response: bytes, response_type: ResponseType
     ) -> list[Packet]:
         # Проверяем флаг FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED
         # если он активен, то сжимаем весь response сразу
         # иначе - compressed_response = None, что свидетельсвует о том, что флаг не активен
         original_response = response
+        compressor = get_compressor(response_type)
 
         is_full_compress = False
         if (
             request_packet.flags
-            & PacketFlags.FLAG_RESPONSE_NEDDED_FULL_PAYLOAD_COMPRESSED
+            & PacketFlags.FLAG_RESPONSE_NEEDED_FULL_PAYLOAD_COMPRESSED
         ):
-            response = markdown_compressor.compress(response)
+            response = compressor.compress(response)
             is_full_compress = True
 
         compressed_chunks: list[bytes] = []
@@ -71,9 +86,8 @@ class UserSession:
             chunk_raw = response[i:i+max_chunk_size]
 
             if not is_full_compress:
-                # TODO: в будущем handler должен будет возвращать информацию о response
                 # К примеру, Тип: чтобы определять, какой compressor стоит использовать для него
-                chunk_raw = markdown_compressor.compress(chunk_raw)
+                chunk_raw = compressor.compress(chunk_raw)
 
             compressed_chunks.append(chunk_raw)
 
@@ -81,38 +95,25 @@ class UserSession:
         pkt_current_id = 0
         chunk_idx = 0
         # формируем пакеты на основе полученных чанков
-        while chunk_idx <= len(compressed_chunks):
+        while chunk_idx < len(compressed_chunks):
             pkt_flags = PacketFlags.FLAG_COMPRESSED
+            payload = compressed_chunks[chunk_idx]
+            chunk_idx += 1
 
-            # проверяем, является ли это последним чанком
-            # если да - устанавливаем FLAG_FINAL_PACKET
-            # В нижнем цикле есть повторяющееся условие - конкретно это нужно для обработки случая, когда последний чанк является последним и с максимальным размером payload (для одного пакета)
+            while chunk_idx < len(compressed_chunks):
+                next_chunk = compressed_chunks[chunk_idx]
+                if len(payload) + len(next_chunk) > max_chunk_size:
+                    break
+                payload += next_chunk
+                chunk_idx += 1
+
             if chunk_idx >= len(compressed_chunks):
                 pkt_flags |= PacketFlags.FLAG_FINAL_PACKET
 
-            payload = compressed_chunks[chunk_idx]
-
             if len(payload) > max_chunk_size:
-                raise RuntimeError(f"Каким то образом chunk стал больше по размеру, чем {max_chunk_size} байт... Плохая функция, правь")
-            elif len(payload) == max_chunk_size:
-                # Вот для этого случая нужна верхняя проверка chunk_idx >= len(compressed_chunks)
-                chunk_idx += 1
-            else:
-                # Цикл для добавления сжатых чанков в один payload (чтобы пакеты были заполнены максимально и за раз можно было отправить больше данных)
-                # для разжатия таких данных на стороне клиента необходимо запустить ZstdStreamReader
-                while len(payload) < max_chunk_size:
-                    chunk_idx += 1
-
-                    if chunk_idx >= len(compressed_chunks):
-                        pkt_flags |= PacketFlags.FLAG_FINAL_PACKET
-                        break
-
-                    next_chunk = compressed_chunks[chunk_idx]
-                    
-                    if len(next_chunk) + len(payload) > max_chunk_size:
-                        break
-
-                    payload += next_chunk
+                raise RuntimeError(
+                    f"chunk стал больше {max_chunk_size} байт ({len(payload)})"
+                )
 
             packet = Packet(
                 pkt_current_id,
@@ -133,7 +134,7 @@ class UserSession:
     def __process_msg_request_packet(self, payload: bytes, packet: Packet):
         try:
             payload_str = payload.decode()
-            response_text = self._call_handler(payload_str, packet)
+            response_text, response_type = self._call_handler(payload_str, packet)
         except ValueError as ex:
             self._logger.error(f"Ошибка call_handler: {ex}")
             self.send_error_packet(
@@ -155,7 +156,7 @@ class UserSession:
             return
 
         response_packets = self._create_response_packets(
-            packet, response_text.encode()
+            packet, response_text.encode(), response_type
         )
         for pkt in response_packets:
             queue_packets.send_packets.put(pkt)
@@ -234,7 +235,8 @@ class UserSession:
 
         payload = decrypt_payload(packet.payload)
         if packet.flags & PacketFlags.FLAG_COMPRESSED:
-            payload = default_compressor.decompress(payload)
+            compressor = get_compressor(ResponseType.TEXT)
+            payload = compressor.decompress(payload)
 
         if packet.msg_type == MessageType.MSG_REQUEST:
             return self.__process_msg_request_packet(payload, packet)
@@ -243,7 +245,7 @@ class UserSession:
             return self.__process_received_packets_report(payload, packet)
 
         self.send_error_packet(
-            self.user_id, self.session_id, PacketErrorCodes.UNKOWN_MSG_TYPE
+            self.user_id, self.session_id, PacketErrorCodes.UNKNOWN_MSG_TYPE
         )
 
     def start_process_packet(self, packet: Packet):
@@ -270,17 +272,3 @@ class UserSession:
             flags=0,
         )
         queue_packets.send_packets.put(error_packet)
-
-
-if __name__ == '__main__':
-    report = struct.pack(">H", 7) + b"1,3-5"
-    pkt0 = Packet(0, 0, 0, report, MessageType.RECEIVED_PACKETS_REPORT, 0)
-    pkt1 = Packet(1, 0, 0, b"6", MessageType.RECEIVED_PACKETS_REPORT, 0)
-    session = UserSession(None, 0, 0) # type: ignore
-    for i in range(0, 10):
-        pkt = Packet(i, 0, 0, b"Hello", MessageType.RESPONSE_SERVER, 0)
-        session._sended_packets.append(pkt)
-        
-    session._process_packet(pkt0)
-    session._process_packet(pkt1)
-

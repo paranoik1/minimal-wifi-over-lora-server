@@ -3,14 +3,14 @@ import re
 import httpx
 from trafilatura import extract
 
-from .register import handler_client_request
-from .base import HandlerPayloadError
+from .base import HandlerPayloadError, ResponseType, handler_client_request, _ReturnHandlerType
+
 
 url_regex = re.compile(r"^https?://")
 
 
 @handler_client_request(lambda payload: url_regex.match(payload) != None)
-def url_handler(payload: str) -> str:
+def handle_url(payload: str) -> _ReturnHandlerType:
     # NOTE: в будущем можно будет задавать какие то параметры внутрь payload
     # например: https://habr.com/articles/123123 %%% METHOD=POST
     url = payload
@@ -33,4 +33,4 @@ def url_handler(payload: str) -> str:
     if not content_md:
         raise HandlerPayloadError("trafilatura return None...")
     
-    return content_md
+    return content_md, ResponseType.MARKDOWN
