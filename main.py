@@ -1,3 +1,4 @@
+import os
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -38,8 +39,10 @@ user_session_map: dict[UserID, dict[SessionID, UserSession]] = {}
 lora_thread_pool = ThreadPoolExecutor(4, "LoRa_")
 sessions_thread_pool = ThreadPoolExecutor(20, "UserSession_")
 
+tty_usb = os.getenv("UART")
+assert tty_usb != None, "не установлен UART"
 # Открываем порт UART в Linux
-lora_900mghz_serial = serial.Serial("/dev/ttyUSB3", baudrate=115200)
+lora_900mghz_serial = serial.Serial(tty_usb, baudrate=115200)
 
 lora_receiver = LoraReceiver(lora_900mghz_serial, lora_thread_pool)
 lora_sender = LoraSender(lora_900mghz_serial, lora_thread_pool)

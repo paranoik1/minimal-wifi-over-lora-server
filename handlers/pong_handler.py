@@ -15,4 +15,6 @@ def handle_test(p: str) -> _ReturnHandlerType:
 
     fake = Faker("ru")
     text = fake.text(1000)
+    with open("test.txt", "w") as fp:
+        fp.write(text)
     return text, ResponseType.TEXT

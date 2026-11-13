@@ -35,7 +35,7 @@ class UserSession:
         self.user_id = user_id
         self.session_id = session_id
         self._pool = thread_pool
-        self._logger = logging.getLogger(f"user_session   {user_id=} {session_id=}")
+        self._logger = logging.getLogger(f"user_session")
 
         self._lock_sended_pkts = threading.Lock()
         self._lock_received_pkts_hashes = threading.Lock()
